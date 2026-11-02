@@ -11,6 +11,7 @@
 #include "app/FfmpegVideo.h"
 #include "app/FrameExtract.h"
 #include "app/LogLuts.h"
+#include "app/SelectClock.h"
 #include "app/Tools.h"
 #include "app/cli/ModelLicense.h"
 #include "i18n/catalog/Cli.h"
@@ -94,6 +95,8 @@ void usage() {
     help_row("    --similar <n>", H::xh_similar);
     help_row("    --skipped-dir <dir>", H::xh_skipped_dir);
     help_row("    --report <file>", H::xh_report);
+    help_row("    --motion-report <file>", H::xh_motion_report);
+    help_row("    --score-report <file>", H::xh_score_report);
     help_row("    --threads <n>", H::xh_threads);
     help_row("    --decoder <d>", H::xh_decoder);
     help_row("    --ffmpeg <exe>", H::xh_ffmpeg);
@@ -161,7 +164,7 @@ struct Options {
     float  blur_reject = 0.0f;
     int    similar = 0;
     std::string skipped_dir;
-    std::string report;
+    std::string report, motion_report, score_report;
     int    threads = 0;
     app::FrameDecoder decoder = app::FrameDecoder::Auto;
     std::string ffmpeg = "ffmpeg";
@@ -228,6 +231,10 @@ bool parse_args(int argc, char** argv, Options& o) {
             o.skipped_dir = next("--skipped-dir");
         else if (a == "--report")
             o.report = next("--report");
+        else if (a == "--motion-report")
+            o.motion_report = next("--motion-report");
+        else if (a == "--score-report")
+            o.score_report = next("--score-report");
         else if (a == "--threads") o.threads = std::atoi(next("--threads"));
         else if (a == "--decoder") {
             const std::string d = next("--decoder");
@@ -295,13 +302,52 @@ bool parse_args(int argc, char** argv, Options& o) {
     }
     if (o.input.empty()) return false;
     if (o.skip < 1) o.skip = 1;
-    if (o.keep < 0) o.keep = (int)(0.5 * o.skip + 0.5);
+    o.keep = app::window_keep(o.keep, o.skip);
     if (o.rotate % 90 != 0) {
         std::fprintf(stderr, "%s\n",
                      spirula::i18n::msg::cli::sam_rotate_multiple_of_90.get());
         return false;
     }
     return true;
+}
+
+// A report file, its folder made first; null, said why, when it cannot be.
+FILE* open_report(const std::string& path) {
+    std::error_code ec;
+    const fs::path dir = fs::path(path).parent_path();
+    if (!dir.empty()) fs::create_directories(dir, ec);
+    FILE* f = std::fopen(path.c_str(), "w");
+    if (!f)
+        std::fprintf(stderr, "%s\n",
+                     spirula::i18n::format(spirula::i18n::msg::cli::sam_report_unwritable,
+                                           {path}).c_str());
+    return f;
+}
+
+// The plan and what it was made from, for a replay of the selection to be held
+// to (viewer/test/select.test.mjs). %.9g gives a float back bit for bit.
+void write_motion_report(FILE* f, const app::MotionPlanInput& in, float range,
+                         const std::vector<int64_t>& plan) {
+    static const char* const kView[] = {"planar", "packed360", "fisheye"};
+    std::fprintf(f,
+                 "{\n  \"view\": \"%s\",\n  \"out_fov\": %.9g,\n  \"frames\": %lld,\n"
+                 "  \"span\": %lld,\n  \"skip\": %d,\n  \"window\": %d,\n"
+                 "  \"max_frames\": %d,\n  \"fps\": %.17g,\n  \"adaptive_range\": %.9g,\n"
+                 "  \"steps\": [",
+                 kView[(int)in.view], in.out_fov, (long long)in.frames, (long long)in.span,
+                 in.skip, in.window, in.max_frames, in.fps, range);
+    for (size_t i = 0; i < in.cost.size(); i++) {
+        const app::MotionStep s = i < in.step.size() ? in.step[i] : app::MotionStep{};
+        std::fprintf(f,
+                     "%s\n    {\"end\": %lld, \"cost\": %.9g, \"drift\": %.9g, \"turn\": "
+                     "[%.9g, %.9g, %.9g, %.9g, %.9g, %.9g]}",
+                     i ? "," : "", (long long)in.ends[i], in.cost[i], s.drift, s.turn[0],
+                     s.turn[1], s.turn[2], s.turn[3], s.turn[4], s.turn[5]);
+    }
+    std::fprintf(f, "\n  ],\n  \"plan\": [");
+    for (size_t i = 0; i < plan.size(); i++)
+        std::fprintf(f, "%s%lld", i ? ", " : "", (long long)plan[i]);
+    std::fprintf(f, "]\n}\n");
 }
 
 }  // namespace
@@ -412,18 +458,25 @@ int sam_cli_extract(int argc, char** argv) {
     app::FrameExtractSinks sinks;
     sinks.log = [](const std::string& l) { std::fprintf(stderr, "%s\n", l.c_str()); };
     // One line a chosen frame, for a script: English and stable on purpose.
+    // So are the other two reports; the motion one exists only where a plan does.
     FILE* report = nullptr;
-    if (!o.report.empty()) {
-        std::error_code ec;
-        const fs::path dir = fs::path(o.report).parent_path();
-        if (!dir.empty()) fs::create_directories(dir, ec);
-        report = std::fopen(o.report.c_str(), "w");
-        if (!report) {
-            std::fprintf(stderr, "%s\n",
-                         spirula::i18n::format(spirula::i18n::msg::cli::sam_report_unwritable,
-                                               {o.report}).c_str());
-            return 1;
-        }
+    FILE* motion = nullptr;
+    FILE* scores = nullptr;
+    if ((!o.report.empty() && !(report = open_report(o.report))) ||
+        (!o.motion_report.empty() && o.adaptive && !(motion = open_report(o.motion_report))) ||
+        (!o.score_report.empty() && !(scores = open_report(o.score_report))))
+        return 1;
+    if (motion)
+        sinks.motion_planned = [motion, range = o.adaptive_range](
+                                   const app::MotionPlanInput& in,
+                                   const std::vector<int64_t>& plan) {
+            write_motion_report(motion, in, range, plan);
+        };
+    if (scores) {
+        std::fprintf(scores, "frame,score\n");
+        sinks.scored = [scores](int64_t index, double score) {
+            std::fprintf(scores, "%lld,%.17g\n", (long long)index, score);
+        };
     }
     if (report) {
         std::fprintf(report, "frame,edge_width_px,blur_px,verdict\n");
@@ -443,7 +496,8 @@ int sam_cli_extract(int argc, char** argv) {
                                            {error}).c_str());
         rc = 1;
     }
-    if (report) std::fclose(report);
+    for (FILE* f : {report, motion, scores})
+        if (f) std::fclose(f);
     std::printf("%s", app::format_extract_stats(stats, base.string(),
                                                 !o.model.empty()).c_str());
     if (stats.write_failures) {

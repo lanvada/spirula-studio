@@ -652,6 +652,59 @@ void motion_frame_size(MotionView view, int src_w, int src_h, int& w, int& h) {
     h = std::max(64, 2 * (int)std::lround(src_h * s * 0.5));
 }
 
+MotionOptions motion_options(const Pano360Layout& eac,
+                             const std::vector<Pano360View>& views, int tracks,
+                             int src_w, int src_h) {
+    MotionOptions mo;
+    if (eac.valid()) mo.view = MotionView::Packed360;
+    else if (tracks >= 2 && src_w == src_h)
+        mo.view = MotionView::Fisheye;
+    mo.eac = eac;
+    mo.out_fov = mo.view == MotionView::Fisheye ? mo.circle_fov : motion_out_fov(views);
+    motion_frame_size(mo.view, src_w, src_h, mo.width, mo.height);
+    return mo;
+}
+
+int motion_stride(double fps, int skip) {
+    return std::max(1, std::min((int)std::lround(fps / 15.0), std::max(1, skip / 3)));
+}
+
+void luma_box(const uint8_t* y, int sw, int sh, int ow, int oh, uint8_t* out) {
+    for (int oy = 0; oy < oh; oy++) {
+        const int y0 = (int)((int64_t)oy * sh / oh);
+        const int y1 = std::min(sh, std::max(y0 + 1, (int)((int64_t)(oy + 1) * sh / oh)));
+        for (int ox = 0; ox < ow; ox++) {
+            const int x0 = (int)((int64_t)ox * sw / ow);
+            const int x1 =
+                std::min(sw, std::max(x0 + 1, (int)((int64_t)(ox + 1) * sw / ow)));
+            float sum = 0.0f;
+            for (int yy = y0; yy < y1; yy++)
+                for (int xx = x0; xx < x1; xx++) sum += (float)y[(size_t)yy * sw + xx];
+            const float v = sum / float((x1 - x0) * (y1 - y0));
+            out[(size_t)oy * ow + ox] = (uint8_t)std::min(255.0f, std::max(0.0f, v + 0.5f));
+        }
+    }
+}
+
+MotionPlanInput motion_plan_input(const MotionTracker& tracker,
+                                  const MotionOptions& o, int64_t frames,
+                                  const FrameSpan& span, int skip, int keep,
+                                  int max_frames, double fps) {
+    MotionPlanInput in;
+    in.cost = tracker.costs();
+    in.step = tracker.steps();
+    in.ends = tracker.ends();
+    in.frames = frames;
+    if (span.first > 0 || span.end >= 0) in.span = span.length(frames);
+    in.skip = skip;
+    in.window = std::max(keep, 1);
+    in.max_frames = max_frames;
+    in.fps = fps;
+    in.view = o.view;
+    in.out_fov = o.out_fov;
+    return in;
+}
+
 // ---------------------------------------------------------------------------
 // Planning
 // ---------------------------------------------------------------------------

@@ -3,8 +3,9 @@
 # Configure with the Emscripten toolchain via emcmake, e.g.:
 #   emcmake cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 #   cmake --build build
-# Two independent modules, copied to js/: ssv_wasm (index.html) and
-# ssv_telemetry (telemetry.html); editing one rebuilds only that one.
+# Three independent modules, copied to js/: ssv_wasm (index.html),
+# ssv_telemetry (telemetry.html) and ss_select (no page; the frame selection a
+# web app that decodes video itself runs); editing one rebuilds only that one.
 #
 # ssv_wasm links two kinds of native code:
 #   1. src/viewer.cpp — dependency-free, performance-critical PLY/OBJ parsing,
@@ -146,5 +147,53 @@ add_custom_command(TARGET ssv_telemetry POST_BUILD
   COMMENT "Copying telemetry WASM artifacts into js/"
 )
 
-# Last: makes both modules depend on the repo's source lints (docs/build.md).
+# ---------------------------------------------------------------------------
+# Third module: the engine's frame selection (src/app's FrameMotion.cpp,
+# FrameSharpness.cpp, SelectClock.h and FramePick.h, in place) behind the C ABI
+# of src/select_bridge.cpp, typed by js/ss_select.d.ts, for a browser that
+# decodes a video itself and has to keep the frames `spirula sam extract` keeps.
+# ---------------------------------------------------------------------------
+set(SELECT_SOURCES
+  "${CMAKE_SOURCE_DIR}/src/select_bridge.cpp"
+  "${SS_SRC}/app/FrameMotion.cpp"
+  "${SS_SRC}/app/FrameSharpness.cpp"
+  "${SS_SRC}/app/Pano360.cpp"
+)
+add_executable(ss_select ${SELECT_SOURCES})
+target_include_directories(ss_select PRIVATE "${SS_SRC}")
+target_compile_definitions(ss_select PRIVATE SS_SOURCE_ROOT="${SS_ROOT}")
+# No -ffast-math: the plan has to round as the native build does, and
+# test/select.test.mjs holds it to the expected file the native test checks.
+set_source_files_properties(${SELECT_SOURCES} PROPERTIES
+  COMPILE_OPTIONS "-O3;-fno-exceptions;-fno-rtti")
+
+target_link_options(ss_select PRIVATE
+  -O3
+  "-sMODULARIZE=1"
+  "-sEXPORT_NAME=SSSelectModule"
+  "-sEXPORT_ES6=1"
+  "-sENVIRONMENT=web,worker"
+  "-sALLOW_MEMORY_GROWTH=1"
+  "-sMAXIMUM_MEMORY=2gb"
+  "-sINITIAL_MEMORY=32mb"
+  "-sFILESYSTEM=0"
+  "-sEXPORTED_FUNCTIONS=['_malloc','_free']"
+  "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','HEAPU8','HEAP32','HEAPU32','HEAPF32','HEAPF64']"
+)
+
+set_target_properties(ss_select PROPERTIES
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+  OUTPUT_NAME "ss_select"
+  SUFFIX ".js"
+)
+
+add_custom_command(TARGET ss_select POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${CMAKE_BINARY_DIR}/ss_select.js" "${CMAKE_SOURCE_DIR}/js/ss_select.js"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+          "${CMAKE_BINARY_DIR}/ss_select.wasm" "${CMAKE_SOURCE_DIR}/js/ss_select.wasm"
+  COMMENT "Copying selection WASM artifacts into js/"
+)
+
+# Last: makes every module depend on the repo's source lints (docs/build.md).
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/SsChecks.cmake)
