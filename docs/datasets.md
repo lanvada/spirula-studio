@@ -1000,6 +1000,11 @@ EXIF.
 
 `--skipped-dir <dir>` writes the frames left out there instead of dropping them,
 and `--report <csv>` lists every chosen frame with its width, blur and verdict.
+Two more record what the whole choice read: `--motion-report <json>` the motion
+pass's steps and the plan made from them (with `--adaptive`), `--score-report
+<csv>` every candidate's sharpness score. Replayed through the same code they
+give the same frames, which is how the browser's copy of this selection
+(`viewer/README.md`, `ss_select`) is held to the native one.
 
 In the GUI, "Skip blurry frames" sits under "Adapt the rate to the motion" and,
 while it is on, shows its settings whatever Advanced says: the threshold in

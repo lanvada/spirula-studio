@@ -10,6 +10,7 @@
 // spot scores nothing on the second, which is what tells a pan apart from a
 // walk past something close. docs/datasets.md weighs them.
 
+#include "app/FrameClip.h"
 #include "app/Pano360.h"
 
 #include <cstdint>
@@ -91,6 +92,23 @@ float motion_out_fov(const std::vector<Pano360View>& views);
 // the pixels to match or its own tracking noise drowns the parallax.
 void motion_frame_size(MotionView view, int src_w, int src_h, int& w, int& h);
 
+// What a track of `src_w` x `src_h` is measured as, unturned: a capture that
+// sees the whole sphere when `eac` packs one or when it is one of the two
+// square tracks every dual-fisheye camera writes, a flat frame otherwise.
+MotionOptions motion_options(const Pano360Layout& eac,
+                             const std::vector<Pano360View>& views, int tracks,
+                             int src_w, int src_h);
+
+// Every how many source frames the motion pass samples. 15 a second follows a
+// walk, but never coarser than a third of the spacing planned: a gap can only
+// land on a sample.
+int motion_stride(double fps, int skip);
+
+// video.slang's luma_thumbnail on the host, summed in the same order and type:
+// a decoded `sw` x `sh` Y plane boxed into the grey frame track() takes. A plan
+// moves by frames when its grey input moves by one level.
+void luma_box(const uint8_t* y, int sw, int sh, int ow, int oh, uint8_t* out);
+
 // One video's measured view change: what MotionTracker produced, and what the
 // fixed schedule would have done with it.
 struct MotionPlanInput {
@@ -111,6 +129,13 @@ struct MotionPlanInput {
     MotionView view = MotionView::Planar;
     float out_fov = 1.5708f;
 };
+
+// A finished tracker's steps, budgeted as a job of `skip`, `keep` and
+// `max_frames` asks: over `frames` source frames, `span` of them read.
+MotionPlanInput motion_plan_input(const MotionTracker& tracker,
+                                  const MotionOptions& o, int64_t frames,
+                                  const FrameSpan& span, int skip, int keep,
+                                  int max_frames, double fps);
 
 // Which source frames each run should end its sharpness windows at, so kept
 // frames differ by view rather than by time, within `range` of what `skip`

@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, 'pin/**']
     tags: ['v*']
   pull_request:
   workflow_dispatch:
@@ -72,6 +72,10 @@ jobs:
       - name: Smoke
         run: ./build_vulkan/spirula train --help
 
+      # The selection the browser module (the wasm job) is held to, natively.
+      - name: Selection parity
+        run: ./build_vulkan/select_parity_test viewer/test/select-fixture.json viewer/test/select-fixture.expected.json
+
       - name: Package
         env:
           REF_NAME: ${{ github.ref_name }}
@@ -89,6 +93,70 @@ jobs:
           path: ${{ env.ASSET }}
           archive: false
           retention-days: 14
+
+  # The frame selection as a WebAssembly module (viewer/README.md). A push to a
+  # pin/ branch also publishes it as the release wasm-<sha7>, which a consumer
+  # pinning that commit fetches and checks against SHA256SUMS.
+  wasm:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      EMSDK_VERSION: 6.0.13
+    steps:
+      - uses: actions/checkout@v4
+
+      # Inside the checkout, so named build-*: the source lints the build runs
+      # skip that (.gitignore, tools/check_winmacro.py).
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+          actions-cache-folder: build-emsdk
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build
+        run: |
+          emcmake cmake -S viewer -B viewer/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build viewer/build --target ss_select -j4
+
+      - name: Test
+        run: node --test viewer/test/select.test.mjs
+
+      - name: Package
+        run: |
+          SHA7=$(git rev-parse --short=7 HEAD)
+          PKG=ss_select-$SHA7.tgz
+          mkdir pkg
+          cp viewer/js/ss_select.js viewer/js/ss_select.wasm viewer/js/ss_select.d.ts LICENSE pkg/
+          printf 'commit %s\nemsdk %s\n' "$(git rev-parse HEAD)" "$EMSDK_VERSION" > pkg/VERSION
+          tar -czf "$PKG" -C pkg ss_select.js ss_select.wasm ss_select.d.ts LICENSE VERSION
+          sha256sum "$PKG" > SHA256SUMS
+          echo "SHA7=$SHA7" >> "$GITHUB_ENV"
+          echo "PKG=$PKG" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ss_select-${{ env.SHA7 }}
+          path: |
+            ${{ env.PKG }}
+            SHA256SUMS
+          retention-days: 14
+
+      # Not `v`: that tag would start the release job below.
+      - name: Publish
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/pin/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          TAG=wasm-$SHA7
+          gh release view "$TAG" >/dev/null 2>&1 ||
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" \
+              --notes "ss_select built from $GITHUB_SHA with emsdk $EMSDK_VERSION"
+          gh release upload "$TAG" "$PKG" SHA256SUMS --clobber
 
   macos:
     runs-on: macos-15

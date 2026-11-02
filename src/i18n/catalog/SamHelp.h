@@ -1242,6 +1242,68 @@ SS_MSG(xh_report,
        "piksel cinsinden kenar genişliği ve bulanıklığı, tutulup "
        "tutulmadığı"));
 
+SS_MSG(xh_motion_report,
+    EN("with --adaptive, write the plan and what it was made from to this JSON "
+       "file: the view change measured at each step, and the frame each window "
+       "ends at"),
+    JA("--adaptive のとき、計画とその元をこの JSON ファイルへ書き出します。各ステップで"
+       "測った見えの変化と、各ウィンドウが終わるフレーム"),
+    ZH_HANS("使用 --adaptive 时，将计划及其依据写入此 JSON 文件：每一步测得的画面变化量，"
+            "以及每个窗口结束的帧"),
+    ZH_HANT("使用 --adaptive 時，將計畫及其依據寫入此 JSON 檔：每一步測得的畫面變化量，"
+            "以及每個視窗結束的影格"),
+    KO("--adaptive 일 때 계획과 그 근거를 이 JSON 파일에 씁니다. 단계마다 잰 시야 "
+       "변화와 각 창이 끝나는 프레임"),
+    DE("schreibt mit --adaptive den Plan und seine Grundlage in diese JSON-Datei: "
+       "die bei jedem Schritt gemessene Änderung des Blicks und das Bild, mit dem "
+       "jedes Fenster endet"),
+    FR("avec --adaptive, écrit dans ce fichier JSON le plan et ce dont il a été "
+       "tiré : le changement de vue mesuré à chaque pas, et l’image où se "
+       "termine chaque fenêtre"),
+    ES("con --adaptive, escribe en este archivo JSON el plan y aquello de lo que "
+       "salió: el cambio de vista medido en cada paso y el fotograma en que "
+       "termina cada ventana"),
+    PT("com --adaptive, grava neste arquivo JSON o plano e aquilo de que foi "
+       "feito: a mudança da vista medida em cada passo e o quadro em que termina "
+       "cada janela"),
+    IT("con --adaptive, scrive in questo file JSON il piano e ciò da cui è stato "
+       "ricavato: il cambio di vista misurato a ogni passo e il fotogramma in cui "
+       "finisce ogni finestra"),
+    NL("schrijft met --adaptive het plan en waaruit het gemaakt is naar dit "
+       "JSON-bestand: de beeldverandering die bij elke stap gemeten is, en het "
+       "beeld waarop elk venster eindigt"),
+    RU("с --adaptive записывает в этот JSON-файл план и то, из чего он "
+       "составлен: изменение вида, измеренное на каждом шаге, и кадр, которым "
+       "заканчивается каждое окно"),
+    TR("--adaptive ile planı ve neyden yapıldığını bu JSON dosyasına yazar: her "
+       "adımda ölçülen görüntü değişimi ve her pencerenin bittiği kare"));
+
+SS_MSG(xh_score_report,
+    EN("write one line for each candidate frame to this CSV file: its number and "
+       "its sharpness score, summed over the tracks"),
+    JA("候補フレームごとに 1 行をこの CSV ファイルへ書き出します。番号と、トラックを"
+       "合計した鮮鋭度"),
+    ZH_HANS("为每个候选帧向此 CSV 文件写入一行：编号和各轨道之和的清晰度分数"),
+    ZH_HANT("為每個候選影格向此 CSV 檔寫入一行：編號和各軌道之和的清晰度分數"),
+    KO("후보 프레임마다 이 CSV 파일에 한 줄씩 씁니다. 번호와 트랙을 합한 선명도 "
+       "점수"),
+    DE("schreibt für jedes Kandidatenbild eine Zeile in diese CSV-Datei: seine "
+       "Nummer und seine Schärfe, über die Spuren summiert"),
+    FR("écrit dans ce fichier CSV une ligne par image candidate : son numéro et "
+       "sa netteté, additionnée sur les pistes"),
+    ES("escribe en este archivo CSV una línea por cada fotograma candidato: su "
+       "número y su nitidez, sumada sobre las pistas"),
+    PT("grava neste arquivo CSV uma linha por quadro candidato: o número e a "
+       "nitidez, somada sobre as faixas"),
+    IT("scrive in questo file CSV una riga per ogni fotogramma candidato: il "
+       "numero e la nitidezza, sommata sulle tracce"),
+    NL("schrijft voor elk kandidaatbeeld één regel naar dit CSV-bestand: het "
+       "nummer en de scherpte, opgeteld over de sporen"),
+    RU("записывает в этот CSV-файл по строке на каждый кадр-кандидат: его номер "
+       "и резкость, суммированную по дорожкам"),
+    TR("her aday kare için bu CSV dosyasına bir satır yazar: numarası ve izler "
+       "üzerinden toplanmış keskinliği"));
+
 SS_MSG(xh_track,
     EN("video track to read; default is every track, written to <out>/cam0, "
        "<out>/cam1, ..."),

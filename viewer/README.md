@@ -9,7 +9,9 @@ is WebGL2.
 
 The directory holds two independent pages: `index.html`, the model viewer
 described below, and [`telemetry.html`](#telemetry-viewer--telemetryhtml), an
-**IMU/GPS viewer** for captures. Each has its own WASM module.
+**IMU/GPS viewer** for captures. Each has its own WASM module. A third module,
+[`ss_select`](#frame-selection-module--ss_select), has no page: it is the frame
+selection of `spirula sam extract` for a web app that decodes video itself.
 
 The viewer's own runtime code is **independent** from the rest of
 the trainer — nothing here imports from the training code at runtime. The
@@ -170,20 +172,46 @@ the browser sees exactly what the reconstruction pipeline sees —
 English only, by design — this is a diagnostic, and the model viewer's i18n
 would be overkill.
 
+## Frame selection module — `ss_select`
+
+`spirula sam extract` decides which frames of a video it keeps from numbers it
+measures: the view change across the capture (`--adaptive`), the sharpness of
+each candidate, and whether a pick is blurred or a near duplicate. This module
+is that decision for a browser that decodes the video itself (WebCodecs): the
+engine's own `src/app/FrameMotion.cpp`, `FrameSharpness.cpp`, `SelectClock.h`
+and `FramePick.h`, compiled in place behind the C ABI of
+`src/select_bridge.cpp`. `js/ss_select.d.ts` is the contract, ownership rules
+included. Decoding, scaling and encoding stay the caller's; given the same
+decoded pictures, the frames kept are the ones the CLI keeps.
+
+`--motion-report` and `--score-report` record what the CLI's decision read, so
+a second implementation can be replayed against it. `test/select.test.mjs`
+replays `test/select-fixture.json` through the module and compares with
+`test/select-fixture.expected.json`; the native `select_parity_test` holds the
+engine to the same file, which is what says the WebAssembly build decides as
+the native one does. CI builds the module for every commit and publishes it
+from `pin/` branches as the release `wasm-<sha7>`; `js/ss_select.{js,wasm}` are
+not committed.
+
+```bash
+./build.sh ss_select
+node --test test/select.test.mjs
+```
+
 ## Build
 
 Requires the Emscripten SDK on `PATH` (`emcc`, `emcmake`) and CMake ≥ 3.16.
 
 ```bash
 source ~/emsdk/emsdk_env.sh      # activate emsdk
-./build.sh                       # both modules
+./build.sh                       # all three modules
 ./build.sh ssv_telemetry         # just the telemetry one
 ```
 
-The two modules are separate CMake targets, so editing one page's sources
+The modules are separate CMake targets, so editing one page's sources
 rebuilds only that page. This produces `js/ssv_wasm.{js,wasm}` and
 `js/ssv_telemetry.{js,wasm}` (committed so the site is directly hostable
-without a build step).
+without a build step), and `js/ss_select.{js,wasm}` (not committed).
 
 ## Run
 
@@ -255,10 +283,13 @@ js/
     charts.js        stacked plots with min/max decimation pyramids
     geo.js           Mercator frame, per-clip model, derived series
   ssv_telemetry.{js,wasm}  built telemetry WASM module
+  ss_select.d.ts     the frame selection module's contract (ss_select.{js,wasm} built)
 src/viewer.cpp       parsers (PLY/OBJ), depth sort, histograms
 src/dataset_bridge.cpp  dataset C ABI over MEMFS (drives the trainer's parsers)
 src/telemetry_bridge.cpp  telemetry C ABI (drives the trainer's Telemetry.cpp)
-test/                end-to-end harness (headless Chrome) + data generators
+src/select_bridge.cpp  frame selection C ABI (drives src/app's selection)
+test/                end-to-end harness (headless Chrome) + data generators,
+                     and the selection module's replay test and fixture
 CMakeLists.txt       Emscripten build (also compiles ../src/data/ parsers)
 ```
 

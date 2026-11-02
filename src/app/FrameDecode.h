@@ -9,39 +9,15 @@
 #include "app/FfmpegVideo.h"
 #include "app/FrameExtract.h"
 #include "app/FrameMotion.h"
+#include "app/SelectClock.h"
 #include "nn/io/Image.h"
 
-#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
 
 namespace app {
-
-// Which decoded frames are candidates and when a window is written.
-struct SelectClock {
-    // A fixed rate is arithmetic on the index; `ends`, from the motion pass,
-    // is the frame each window closes at. Both are walked forward only.
-    int keep = 0, skip = 1;
-    std::vector<int64_t> ends;
-    size_t next = 0;
-    FrameSpan span;
-
-    bool candidate(int64_t i) {
-        if (i < span.first || span.past(i)) return false;
-        if (!ends.empty()) {
-            while (next < ends.size() && ends[next] < i) ++next;
-            return next < ends.size() && i > ends[next] - std::max(keep, 1) &&
-                   i <= ends[next];
-        }
-        return keep == 0 ? (i % skip == 0) : (((i + keep) % skip) < keep);
-    }
-    bool step(int64_t i) {
-        if (!ends.empty()) return next < ends.size() && i == ends[next];
-        return keep == 0 || ((i + 1) % skip) == 0;
-    }
-};
 
 // The chosen instant's pictures, one per track in the order they were asked
 // for, and the source frame it is.

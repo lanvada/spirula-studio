@@ -422,6 +422,15 @@ add_executable(frame_pick_test
     ${SS_SRC}/app/FrameSharpness.cpp)
 ss_configure_app(frame_pick_test)
 
+# The whole selection replayed from viewer/test/select-fixture.json, held to the
+# answers the WebAssembly build gave: equal says the module decides as this does.
+add_executable(select_parity_test
+    ${SS_SRC}/app/tests/select_parity_test.cpp
+    ${SS_SRC}/app/FrameMotion.cpp
+    ${SS_SRC}/app/FrameSharpness.cpp
+    ${SS_SRC}/app/Pano360.cpp)
+ss_configure_app(select_parity_test)
+
 add_executable(model_download_test
     ${SS_SRC}/app/tests/model_download_test.cpp
     ${SS_SRC}/app/gui/ModelCache.cpp

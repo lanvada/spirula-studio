@@ -304,7 +304,7 @@ bool extract_frames(const FrameExtractJob& job_in, const FrameExtractSinks& sink
     FrameExtractJob job = job_in;
     FrameExtractSinks sinks = sinks_in;
     if (job.skip < 1) job.skip = 1;
-    if (job.keep < 0) job.keep = (int)(0.5 * job.skip + 0.5);
+    job.keep = window_keep(job.keep, job.skip);
     if (job.rotate % 90 != 0) {
         error = "rotation must be a multiple of 90 degrees";
         return false;
@@ -440,6 +440,7 @@ bool extract_frames(const FrameExtractJob& job_in, const FrameExtractSinks& sink
             return false;
         }
         report_plan(sinks, plan, mi.frames, mi.fps);
+        if (sinks.motion_planned) sinks.motion_planned(mi, plan);
     }
 
     const Decode decode = [&](const std::vector<int>& tr, bool convert,

@@ -3,7 +3,7 @@
 # Requires the Emscripten SDK to be activated (emcc / emcmake on PATH), e.g.:
 #   source ~/emsdk/emsdk_env.sh
 #
-# Usage: ./build.sh [ssv_wasm | ssv_telemetry]   (default: both)
+# Usage: ./build.sh [ssv_wasm | ssv_telemetry | ss_select]   (default: all three)
 set -euo pipefail
 cd "$(dirname "$0")"
 

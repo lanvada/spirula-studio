@@ -88,26 +88,6 @@ std::string join_filters(std::initializer_list<std::string> parts) {
     return out;
 }
 
-// video.slang's luma_thumbnail on the host, summed in the same order and
-// type, so the plan is the built-in decoder's: both decode the Y plane
-// bit-exactly, and a plan moves by frames when its grey input moves by one.
-void luma_box(const uint8_t* y, int sw, int sh, int ow, int oh, uint8_t* out) {
-    for (int oy = 0; oy < oh; oy++) {
-        const int y0 = (int)((int64_t)oy * sh / oh);
-        const int y1 = std::min(sh, std::max(y0 + 1, (int)((int64_t)(oy + 1) * sh / oh)));
-        for (int ox = 0; ox < ow; ox++) {
-            const int x0 = (int)((int64_t)ox * sw / ow);
-            const int x1 =
-                std::min(sw, std::max(x0 + 1, (int)((int64_t)(ox + 1) * sw / ow)));
-            float sum = 0.0f;
-            for (int yy = y0; yy < y1; yy++)
-                for (int xx = x0; xx < x1; xx++) sum += (float)y[(size_t)yy * sw + xx];
-            const float v = sum / float((x1 - x0) * (y1 - y0));
-            out[(size_t)oy * ow + ox] = (uint8_t)std::min(255.0f, std::max(0.0f, v + 0.5f));
-        }
-    }
-}
-
 }  // namespace
 
 bool measure_motion_ffmpeg(const FrameExtractJob& o, const FrameExtractSinks& sinks,
@@ -119,22 +99,11 @@ bool measure_motion_ffmpeg(const FrameExtractJob& o, const FrameExtractSinks& si
         error = "no video track " + std::to_string(track);
         return false;
     }
-    const int w = facts.tracks[track].first, h = facts.tracks[track].second;
-
-    // As the built-in pass measures: unturned source frames, the same view.
-    MotionOptions mo;
-    if (o.eac.valid()) mo.view = MotionView::Packed360;
-    else if (tracks >= 2 && w == h)
-        mo.view = MotionView::Fisheye;
-    mo.eac = o.eac;
-    mo.out_fov = mo.view == MotionView::Fisheye ? mo.circle_fov
-                                                : motion_out_fov(o.views);
-    motion_frame_size(mo.view, w, h, mo.width, mo.height);
-
+    const MotionOptions mo = motion_options(o.eac, o.views, tracks, facts.tracks[track].first,
+                                            facts.tracks[track].second);
     MotionTracker tracker(mo);
     const double fps = span_fps(facts);
-    const int stride = std::max(
-        1, std::min((int)std::lround(fps / 15.0), std::max(1, o.skip / 3)));
+    const int stride = motion_stride(fps, o.skip);
     const FrameSpan span = clip_frames(o, fps);
     const int64_t span_n = span.length(facts.frames);
 
@@ -173,18 +142,10 @@ bool measure_motion_ffmpeg(const FrameExtractJob& o, const FrameExtractSinks& si
     }
     if (!error.empty()) return false;
     tracker.finish();
-    out.cost = tracker.costs();
-    out.step = tracker.steps();
-    out.ends = tracker.ends();
     // A clip's end stops the decode short of the whole video's count.
-    out.frames = span.end >= 0 ? std::max<int64_t>(span.end, facts.frames) : index + 1;
-    if (span.first > 0 || span.end >= 0) out.span = span.length(out.frames);
-    out.skip = o.skip;
-    out.window = std::max(o.keep, 1);
-    out.max_frames = o.max_frames;
-    out.fps = fps;
-    out.view = mo.view;
-    out.out_fov = mo.out_fov;
+    const int64_t frames =
+        span.end >= 0 ? std::max<int64_t>(span.end, facts.frames) : index + 1;
+    out = motion_plan_input(tracker, mo, frames, span, o.skip, o.keep, o.max_frames, fps);
     t.plan = nn::now_ms() - t_start;
     return true;
 }
@@ -227,6 +188,7 @@ bool decode_lockstep_ffmpeg(const FrameExtractJob& o, const FrameExtractSinks& s
     // Only the best instant of the window is held: the window's argmax, as the
     // built-in decoder takes it, without keeping `keep` pictures a track.
     SelectClock clock{o.keep, o.skip, plan, 0};
+    WindowBest top;
     clock.span = span;
     PickRule rule{o.blur_reject, o.blur_neighbour, o.similar_bits};
     const bool judge = rule.on() || (bool)sinks.judged;
@@ -235,9 +197,7 @@ bool decode_lockstep_ffmpeg(const FrameExtractJob& o, const FrameExtractSinks& s
     std::vector<nn::Image> cur(n), best(n);
     std::vector<double> score(n), score_ms(n);
     std::vector<std::string> errs(n);
-    double best_score = -1.0;
     int64_t best_index = -1, i = span.first - 1;
-    bool held = false;
     int written = 0;
 
     while (o.max_frames <= 0 || written < o.max_frames) {
@@ -291,14 +251,13 @@ bool decode_lockstep_ffmpeg(const FrameExtractJob& o, const FrameExtractSinks& s
 
         double s = 0;
         for (size_t k = 0; k < n; k++) s += measure ? score[k] : 0.0;
-        if (!held || s > best_score) {
+        if (measure && sinks.scored) sinks.scored(i, s);
+        if (top.offer(s)) {
             best.swap(cur);
-            best_score = s;
             best_index = i;
-            held = true;
         }
         if (!clock.step(i)) continue;
-        held = false;
+        top = WindowBest{};
         if (judge) {
             FramePick p;
             p.index = best_index;
@@ -319,7 +278,6 @@ bool decode_lockstep_ffmpeg(const FrameExtractJob& o, const FrameExtractSinks& s
             ++written;
             if (sinks.progress) sinks.progress(t.written, t.decoded);
         }
-        held = false;
     }
     return true;
 }

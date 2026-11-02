@@ -111,10 +111,16 @@ struct FrameExtractSinks {
     // And the spacing it settled on: the source frame each kept frame ends at,
     // over a capture that many frames long.
     std::function<void(const std::vector<int64_t>&, int64_t)> planned;
+    // The same plan with the measurement it was made from, for a replay of it.
+    std::function<void(const MotionPlanInput&, const std::vector<int64_t>&)>
+        motion_planned;
     // Each step as it is measured, for a panel drawing the curve live: the
     // frame it ends at, how many the capture holds, and the view change across
     // it.
     std::function<void(int64_t, int64_t, float)> measured;
+    // Every candidate's sharpness, summed over the instant's tracks, as its
+    // window's pick read it: (source frame, score). On the decode thread.
+    std::function<void(int64_t, double)> scored;
     // Each chosen frame as PickRule rules on it, kept or not, with its first
     // track's pixels as extraction would write them.
     std::function<void(const FramePick&, const nn::Image&)> judged;

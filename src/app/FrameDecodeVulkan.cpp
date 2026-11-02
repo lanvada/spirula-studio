@@ -34,23 +34,10 @@ bool measure_motion_vulkan(const FrameExtractJob& o, const FrameExtractSinks& si
     if (!pipe.open(o.input, track, 1, error)) return false;
     const video::TrackInfo& info = pipe.track();
 
-    MotionOptions mo;
-    // A capture that sees the whole sphere: the 360 packing, or the two square
-    // tracks every dual-fisheye camera writes.
-    if (o.eac.valid()) mo.view = MotionView::Packed360;
-    else if (tracks >= 2 && info.width == info.height)
-        mo.view = MotionView::Fisheye;
-    mo.eac = o.eac;
-    mo.out_fov = mo.view == MotionView::Fisheye ? mo.circle_fov
-                                           : motion_out_fov(o.views);
-    motion_frame_size(mo.view, info.width, info.height, mo.width, mo.height);
-
+    const MotionOptions mo = motion_options(o.eac, o.views, tracks, info.width, info.height);
     MotionTracker tracker(mo);
     const double fps = info.fps > 1.0 ? info.fps : 30.0;
-    // 15 samples a second is enough to follow a walk, but never coarser than a
-    // third of the spacing being planned: a gap can only land on a sample.
-    const int stride = std::max(
-        1, std::min((int)std::lround(fps / 15.0), std::max(1, o.skip / 3)));
+    const int stride = motion_stride(fps, o.skip);
     const FrameSpan span = clip_frames(o, fps);
     const int64_t span_n = span.length(info.frame_count);
     if (span.first > 0) {
@@ -144,17 +131,8 @@ bool measure_motion_vulkan(const FrameExtractJob& o, const FrameExtractSinks& si
     }
     stop();
     tracker.finish();
-    out.cost = tracker.costs();
-    out.step = tracker.steps();
-    out.ends = tracker.ends();
-    out.frames = info.frame_count > 0 ? info.frame_count : last + 1;
-    if (span.first > 0 || span.end >= 0) out.span = span.length(out.frames);
-    out.skip = o.skip;
-    out.window = std::max(o.keep, 1);
-    out.max_frames = o.max_frames;
-    out.fps = fps;
-    out.view = mo.view;
-    out.out_fov = mo.out_fov;
+    out = motion_plan_input(tracker, mo, info.frame_count > 0 ? info.frame_count : last + 1,
+                            span, o.skip, o.keep, o.max_frames, fps);
     t.plan = nn::now_ms() - t_start;
     return true;
 }
@@ -298,16 +276,14 @@ bool decode_lockstep_vulkan(const FrameExtractJob& o, const FrameExtractSinks& s
             }
             size_t best = 0;
             if (keep != 0) {
-                float best_score = -1.0f;
+                WindowBest top;
                 for (size_t i = 0; i < window.size(); ++i) {
                     // Each track sees its share of the scene; the sum is the
                     // whole capture's.
                     float s = 0;
                     for (size_t k = 0; k < n; k++) s += pipe[k]->sharpness(window[i].h[k]);
-                    if (s > best_score) {
-                        best_score = s;
-                        best = i;
-                    }
+                    if (sinks.scored) sinks.scored(window[i].index, s);
+                    if (top.offer(s)) best = i;
                 }
             }
             const Buffered& chosen = window[best];
