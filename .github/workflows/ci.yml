@@ -145,9 +145,10 @@ jobs:
             SHA256SUMS
           retention-days: 14
 
-      # Not `v`: that tag would start the release job below.
+      # Not `v`: that tag would start the release job below. A dispatch on a pin
+      # branch publishes too: a release lost, or a push Actions was off for, is redone.
       - name: Publish
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/pin/')
+        if: startsWith(github.ref, 'refs/heads/pin/') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
