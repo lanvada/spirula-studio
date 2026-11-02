@@ -125,14 +125,39 @@ jobs:
       - name: Test
         run: node --test viewer/test/select.test.mjs
 
+      # An npm-style tarball: a consumer installs it from the release URL, its
+      # lockfile holds the integrity, and "spirula" names the tree it came from.
       - name: Package
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
+          SHA=$(git rev-parse HEAD)
           SHA7=$(git rev-parse --short=7 HEAD)
+          VERSION=$(sed -n 's/^set(SS_VERSION "\(.*\)")$/\1/p' cmake/SsOptions.cmake)
+          test -n "$VERSION"
           PKG=ss_select-$SHA7.tgz
-          mkdir pkg
-          cp viewer/js/ss_select.js viewer/js/ss_select.wasm viewer/js/ss_select.d.ts LICENSE pkg/
-          printf 'commit %s\nemsdk %s\n' "$(git rev-parse HEAD)" "$EMSDK_VERSION" > pkg/VERSION
-          tar -czf "$PKG" -C pkg ss_select.js ss_select.wasm ss_select.d.ts LICENSE VERSION
+          mkdir -p pkg/package/conformance
+          cp viewer/js/ss_select.js viewer/js/ss_select.wasm viewer/js/ss_select.d.ts LICENSE pkg/package/
+          cp viewer/test/select-replay.mjs viewer/test/select-replay.d.mts \
+             viewer/test/select-fixture.json viewer/test/select-fixture.expected.json pkg/package/conformance/
+          cat > pkg/package/package.json <<EOF
+          {
+            "name": "ss-select",
+            "version": "$VERSION-g$SHA7",
+            "description": "The frame selection of spirula sam extract, as a WebAssembly module",
+            "license": "GPL-3.0-only",
+            "repository": { "type": "git", "url": "$REPO_URL.git" },
+            "type": "module",
+            "exports": {
+              ".": { "types": "./ss_select.d.ts", "default": "./ss_select.js" },
+              "./ss_select.wasm": "./ss_select.wasm",
+              "./conformance/*": "./conformance/*",
+              "./package.json": "./package.json"
+            },
+            "spirula": { "version": "$VERSION", "commit": "$SHA", "emsdk": "$EMSDK_VERSION" }
+          }
+          EOF
+          tar -czf "$PKG" -C pkg package
           sha256sum "$PKG" > SHA256SUMS
           echo "SHA7=$SHA7" >> "$GITHUB_ENV"
           echo "PKG=$PKG" >> "$GITHUB_ENV"
