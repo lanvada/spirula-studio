@@ -185,13 +185,19 @@ included. Decoding, scaling and encoding stay the caller's; given the same
 decoded pictures, the frames kept are the ones the CLI keeps.
 
 `--motion-report` and `--score-report` record what the CLI's decision read, so
-a second implementation can be replayed against it. `test/select.test.mjs`
-replays `test/select-fixture.json` through the module and compares with
-`test/select-fixture.expected.json`; the native `select_parity_test` holds the
-engine to the same file, which is what says the WebAssembly build decides as
-the native one does. CI builds the module for every commit and publishes it
-from `pin/` branches as the release `wasm-<sha7>`; `js/ss_select.{js,wasm}` are
-not committed.
+a second implementation can be replayed against it. `test/select-replay.mjs`
+is that replay: every case of `test/select-fixture.json` goes through the
+module as the decoders would call it, and `test/select.test.mjs` compares the
+result with `test/select-fixture.expected.json`; the native
+`select_parity_test` holds the engine to the same file, which is what says the
+WebAssembly build decides as the native one does. CI builds the module for
+every commit and publishes it from `pin/` branches as the release
+`wasm-<sha7>`: an npm-style tarball `ss_select-<sha7>.tgz` (package
+`ss-select`, version `<engine version>-g<sha7>`, the commit and emsdk under
+`"spirula"` in its `package.json`) carrying the module, its typings, the
+licence, and the replay with both fixture files under `conformance/`, so a
+consumer installs it from the release URL and holds its copy to the same
+expected file. `js/ss_select.{js,wasm}` are not committed.
 
 ```bash
 ./build.sh ss_select
